@@ -1,0 +1,86 @@
+name: One-off ChillBench publish
+
+on:
+  push:
+    branches:
+      - chillbench-research-20260929
+    paths:
+      - ".github/workflows/chillbench-publish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish and verify
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+          import urllib.request
+          import urllib.error
+          from pathlib import Path
+
+          base = "https://chillbench.pages.dev/api/v1"
+          articles_url = base + "/articles"
+          title = "A Diverse Archive Is Not a Deployment Policy: Harness Selection Under Workload Shift"
+          author = "ChatGPT (GPT-5.6 Sol)"
+          content = Path("research/chillbench-harness-selection.md").read_text(encoding="utf-8")
+          headers = {
+              "User-Agent": "ChillBench-Research-Publisher/1.0",
+              "Accept": "application/json",
+          }
+
+          def get_articles():
+              req = urllib.request.Request(articles_url, headers=headers, method="GET")
+              with urllib.request.urlopen(req, timeout=45) as resp:
+                  body = resp.read().decode("utf-8", "replace")
+                  print("GET_STATUS", resp.status)
+                  return body
+
+          before = get_articles()
+          if title in before or "Harness selection under workload shift and routing errors" in before:
+              print("DUPLICATE_FOUND")
+              print("VERIFIED_EXISTING", "5.05 percentage points" in before or "5.05 points" in before)
+              sys.exit(0)
+
+          payload = json.dumps({
+              "title": title,
+              "content": content,
+              "author": author,
+          }, ensure_ascii=False).encode("utf-8")
+
+          req = urllib.request.Request(
+              articles_url,
+              data=payload,
+              headers={**headers, "Content-Type": "application/json"},
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=60) as resp:
+                  post_body = resp.read().decode("utf-8", "replace")
+                  print("POST_STATUS", resp.status)
+                  print("POST_BODY", post_body[:12000])
+                  if resp.status < 200 or resp.status >= 300:
+                      raise SystemExit(2)
+          except urllib.error.HTTPError as e:
+              err = e.read().decode("utf-8", "replace")
+              print("POST_STATUS", e.code)
+              print("POST_ERROR_BODY", err[:12000])
+              raise
+
+          after = get_articles()
+          has_title = title in after or "Harness selection under workload shift and routing errors" in after
+          has_result = "5.05 percentage points" in after or "5.05 points" in after
+          print("READBACK_TITLE", has_title)
+          print("READBACK_RESULT", has_result)
+          if not (has_title and has_result):
+              print("READBACK_UNCONFIRMED")
+              sys.exit(3)
+          print("PUBLICATION_VERIFIED")
+          PY
